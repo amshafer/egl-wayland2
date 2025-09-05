@@ -151,18 +151,22 @@ PUBLIC EGLBoolean loadEGLExternalPlatform(int major, int minor,
         return EGL_FALSE;
     }
 
-    plat->priv->drm.GetDeviceFromDevId = dlsym(RTLD_DEFAULT, "drmGetDeviceFromDevId");
-
     // wl_display_create_queue_with_name was added in libwayland 1.22.91. Use
     // it if it's available, but we don't otherwise need anything that recent.
     plat->priv->wl.display_create_queue_with_name = dlsym(RTLD_DEFAULT, "wl_display_create_queue_with_name");
 
+    plat->priv->drm.libdrmDlHandle = dlopen("libdrm.so.2", RTLD_LAZY);
+    if (!plat->priv->drm.libdrmDlHandle) {
+        plat->priv->drm.libdrmDlHandle = RTLD_DEFAULT;
+    }
+
+    plat->priv->drm.GetDeviceFromDevId = dlsym(plat->priv->drm.libdrmDlHandle, "drmGetDeviceFromDevId");
+
 #define LOAD_PROC(supported, prefix, group, name) \
-    supported = supported && LoadProcHelper(plat, RTLD_DEFAULT, (void **) &plat->priv->group.name, prefix #name)
+    supported = supported && LoadProcHelper(plat, plat->priv->drm.libdrmDlHandle, (void **) &plat->priv->group.name, prefix #name)
 
     // Load the functions that we'll need for explicit sync, if they're
     // available. If we don't find these, then it's not fatal.
-    LOAD_PROC(timelineSupported, "drm", drm, GetDeviceFromDevId);
     LOAD_PROC(timelineSupported, "drm", drm, GetCap);
     LOAD_PROC(timelineSupported, "drm", drm, SyncobjCreate);
     LOAD_PROC(timelineSupported, "drm", drm, SyncobjDestroy);
@@ -192,7 +196,9 @@ PUBLIC EGLBoolean loadEGLExternalPlatform(int major, int minor,
 
 void eplWlCleanupPlatform(EplPlatformData *plat)
 {
-    // Nothing to do here.
+    if (plat->priv->drm.libdrmDlHandle) {
+        dlclose(plat->priv->drm.libdrmDlHandle);
+    }
 }
 
 const char *eplWlQueryString(EplPlatformData *plat, EplDisplay *pdpy, EGLExtPlatformString name)
